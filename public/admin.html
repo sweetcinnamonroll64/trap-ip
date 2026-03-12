@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard — IP Trap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="admin-body">
+
+  <div class="bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+  </div>
+
+  <!-- Nav -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">IP Trap — Admin</span>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:12px;">
+        <a href="/" class="btn-nav" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text-muted);">← Landing Page</a>
+        <button class="btn-nav" id="logout-btn" onclick="doLogout()">Logout 🚪</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="admin-container">
+    <!-- Header -->
+    <div class="admin-header">
+      <h1>🕵️ Visitor Dashboard</h1>
+      <div class="auto-refresh-indicator">
+        <div class="dot-live"></div>
+        Auto-refresh every <span id="countdown">30</span>s
+      </div>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="admin-stats-bar">
+      <div class="admin-stat-card">
+        <div class="num gradient-text" id="stat-total">—</div>
+        <div class="lbl">Total Unique IPs</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="num gradient-text" id="stat-visits">—</div>
+        <div class="lbl">Total Visits</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="num gradient-text" id="stat-countries">—</div>
+        <div class="lbl">Countries</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="num gradient-text" id="stat-latest">—</div>
+        <div class="lbl">Latest Visit</div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="admin-toolbar">
+      <button class="btn-refresh" id="btn-refresh" onclick="loadVisitors()">🔄 Refresh</button>
+      <button class="btn-danger" id="btn-clear" onclick="clearAll()">🗑 Clear All Data</button>
+      <button class="btn-refresh" style="margin-left:auto" onclick="exportJSON()">⬇️ Export JSON</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap" id="table-wrap">
+      <div class="empty-state">
+        <div class="icon">📡</div>
+        <p>Loading visitor data...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let allVisitors = [];
+    let countdown = 30;
+    let timer;
+
+    // ── Auth check on load ──────────────────────────────────────────────────
+    async function checkAuth() {
+      const res = await fetch('/api/auth-check');
+      const data = await res.json();
+      if (!data.authenticated) window.location.href = '/login.html';
+    }
+
+    // ── Logout ──────────────────────────────────────────────────────────────
+    async function doLogout() {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    }
+
+    // ── Load visitors from API ──────────────────────────────────────────────
+    async function loadVisitors() {
+      try {
+        const res = await fetch('/api/visitors');
+        if (res.status === 401 || res.redirected) {
+          window.location.href = '/login.html'; return;
+        }
+        const data = await res.json();
+        allVisitors = data.visitors || [];
+        // Use server-computed stats
+        document.getElementById('stat-total').textContent = data.total || 0;
+        document.getElementById('stat-visits').textContent = data.visits || 0;
+        document.getElementById('stat-countries').textContent = data.countries || 0;
+        const latest = allVisitors[0]
+          ? new Date(allVisitors[0].lastSeen).toLocaleString('id-ID', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Jakarta' })
+          : '—';
+        document.getElementById('stat-latest').textContent = latest;
+        renderTable(allVisitors);
+      } catch (err) {
+        document.getElementById('table-wrap').innerHTML =
+          '<div class="empty-state"><div class="icon">❌</div><p>Failed to load data. Is the server running?</p></div>';
+      }
+    }
+
+    // ── Render table ────────────────────────────────────────────────────────
+    function renderTable(visitors) {
+      const wrap = document.getElementById('table-wrap');
+      if (!visitors.length) {
+        wrap.innerHTML = '<div class="empty-state"><div class="icon">🕵️</div><p>No visitors captured yet.<br/>Share the landing page link to start collecting IPs.</p></div>';
+        return;
+      }
+
+      const rows = visitors.map((v) => {
+        const date = new Date(v.timestamp);
+        const dateStr = date.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        const lastSeen = new Date(v.lastSeen).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        const geo = v.geo || {};
+        const geoStr = [geo.city, geo.region, geo.country].filter(Boolean).join(', ') || '—';
+        const isp = geo.isp || '—';
+        const ua = v.userAgent || '—';
+        const ref = v.referrer || 'direct';
+
+        return `
+          <tr id="row-${v.id}">
+            <td><span class="ip-badge">${escHtml(v.ip)}</span></td>
+            <td>
+              <div>${dateStr}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Last: ${lastSeen}</div>
+            </td>
+            <td class="geo-info">
+              <div>${escHtml(geoStr)}</div>
+              <div style="font-size:11px;margin-top:2px">${escHtml(isp)}</div>
+            </td>
+            <td><span class="visits-badge">${v.visitCount || 1}×</span></td>
+            <td><div class="ua-text" title="${escHtml(ua)}">${escHtml(ua)}</div></td>
+            <td class="geo-info">${escHtml(ref)}</td>
+            <td>
+              <button class="del-btn" onclick="deleteVisitor('${v.id}')">Delete</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      wrap.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>IP Address</th>
+              <th>First Seen</th>
+              <th>Location / ISP</th>
+              <th>Visits</th>
+              <th>User Agent</th>
+              <th>Referrer</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    // ── Render stats (updated by loadVisitors directly) ─────────────────────
+    function renderStats(visitors) {
+      const latest = visitors[0] ? new Date(visitors[0].lastSeen).toLocaleString('id-ID', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta'
+      }) : '—';
+      document.getElementById('stat-latest').textContent = latest;
+    }
+
+    // ── Delete single visitor ───────────────────────────────────────────────
+    async function deleteVisitor(id) {
+      try {
+        await fetch(`/api/visitors/${id}`, { method: 'DELETE' });
+        document.getElementById(`row-${id}`)?.remove();
+        allVisitors = allVisitors.filter((v) => v.id !== id);
+        renderStats(allVisitors);
+        if (!allVisitors.length) renderTable([]);
+        showToast('✓ Visitor deleted.');
+      } catch {
+        showToast('❌ Delete failed.');
+      }
+    }
+
+    // ── Clear all ────────────────────────────────────────────────────────────
+    async function clearAll() {
+      if (!confirm('Are you sure? This will delete ALL visitor data permanently.')) return;
+      try {
+        await fetch('/api/visitors', { method: 'DELETE' });
+        allVisitors = [];
+        renderStats([]);
+        renderTable([]);
+        showToast('🗑 All data cleared.');
+      } catch {
+        showToast('❌ Failed to clear data.');
+      }
+    }
+
+    // ── Export JSON ──────────────────────────────────────────────────────────
+    function exportJSON() {
+      const blob = new Blob([JSON.stringify(allVisitors, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `visitors_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ── Toast ────────────────────────────────────────────────────────────────
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // ── XSS-safe escape ──────────────────────────────────────────────────────
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ── Auto-refresh countdown ───────────────────────────────────────────────
+    function startCountdown() {
+      countdown = 30;
+      clearInterval(timer);
+      timer = setInterval(() => {
+        countdown--;
+        document.getElementById('countdown').textContent = countdown;
+        if (countdown <= 0) {
+          loadVisitors();
+          countdown = 30;
+        }
+      }, 1000);
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+    checkAuth().then(() => {
+      loadVisitors();
+      startCountdown();
+    });
+  </script>
+</body>
+</html>

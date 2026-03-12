@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Database (Railway akan buat ini sendiri via persistent volume)
+data/visitors.db
+data/visitors.db-shm
+data/visitors.db-wal
+
+# Backup file dari migrasi JSON
+data/visitors.json.bak
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
