@@ -18,8 +18,22 @@ const ADMIN_PASSWORD_HASH = bcrypt.hashSync(
 // To change password: set env var ADMIN_PASS=yourpassword before running
 // Or edit the default value 'admin123' above
 
+const fs = require('fs');
+
 // ─── SQLite Setup ─────────────────────────────────────────────────────────────
-const db = new Database(path.join(__dirname, 'data', 'visitors.db'));
+// On Railway: store DB in persistent volume (set RAILWAY_VOLUME_MOUNT_PATH in dashboard)
+// Locally: falls back to ./data directory
+const dataDir = process.env.RAILWAY_VOLUME_MOUNT_PATH
+  ? process.env.RAILWAY_VOLUME_MOUNT_PATH
+  : path.join(__dirname, 'data');
+
+// Ensure data directory exists before opening database
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const DB_PATH = path.join(dataDir, 'visitors.db');
+const db = new Database(DB_PATH);
 
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
